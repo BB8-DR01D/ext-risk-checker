@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- [H1] CSP: no unsafe-inline. All JS is inline but a nonce would require server-side rendering;
+       for a static GitHub Pages app the strongest practical CSP is below.
+       connect-src locked to your Worker URL only — change before deploying. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src YOUR_WORKER_URL; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'self';" />
+  <title>Chrome Extension Risk Checker</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#0f1117; --surface:#1a1d27; --surface2:#22263a;
+      --border:#2e3248; --border2:#3d4260;
+      --text:#e8eaf6; --text2:#8b90b8; --text3:#555a7a;
+      --accent:#6c8ef5; --accent-dim:#2a3a6b;
+      --green:#4ade80; --green-bg:#0d2b1a;
+      --teal:#2dd4bf;  --teal-bg:#0a2420;
+      --amber:#fbbf24; --amber-bg:#2b1f06;
+      --coral:#fb923c; --coral-bg:#2b1206;
+      --red:#f87171;   --red-bg:#2b0d0d;
+      --blue:#60a5fa;  --blue-bg:#0d1e3a;
+      --radius:10px;   --radius-lg:16px;
+    }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; font-size:15px; line-height:1.6; }
+    .shell { max-width:900px; margin:0 auto; padding:2rem 1.25rem 4rem; }
+    /* Header */
+    .header { display:flex; align-items:center; justify-content:space-between; margin-bottom:2.5rem; padding-bottom:1.5rem; border-bottom:1px solid var(--border); }
+    .header-left { display:flex; align-items:center; gap:12px; }
+    .logo { width:38px; height:38px; background:var(--accent-dim); border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:20px; }
+    .header h1 { font-size:18px; font-weight:600; letter-spacing:-.3px; }
+    .header p  { font-size:13px; color:var(--text2); margin-top:1px; }
+    .btn-admin { background:var(--surface); border:1px solid var(--border); color:var(--text2); padding:7px 14px; border-radius:var(--radius); font-size:13px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:border-color .15s,color .15s; }
+    .btn-admin:hover { border-color:var(--border2); color:var(--text); }
+    /* Tabs */
+    .tabs { display:flex; gap:4px; margin-bottom:1.5rem; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:4px; }
+    .tab { flex:1; padding:8px 12px; border:none; border-radius:7px; background:transparent; color:var(--text2); font-size:13px; font-weight:500; cursor:pointer; transition:background .15s,color .15s; }
+    .tab.active { background:var(--accent-dim); color:var(--accent); }
+    .tab:hover:not(.active) { background:var(--surface2); color:var(--text); }
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; }
+    /* Cards */
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:1.75rem; margin-bottom:1.5rem; }
+    .card label { display:block; font-size:13px; color:var(--text2); margin-bottom:8px; letter-spacing:.3px; }
+    .search-row { display:flex; gap:10px; }
+    .search-row input { flex:1; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:14px; font-family:'SF Mono','Fira Code',monospace; padding:10px 14px; outline:none; transition:border-color .15s; }
+    .search-row input:focus { border-color:var(--accent); }
+    .search-row input::placeholder { color:var(--text3); }
+    .hint { margin-top:10px; font-size:12px; color:var(--text3); }
+    .hint a { color:var(--accent); text-decoration:none; }
+    .hint a:hover { text-decoration:underline; }
+    .hint code { font-family:monospace; font-size:11px; background:var(--surface2); padding:1px 5px; border-radius:4px; }
+    /* Buttons */
+    .btn-primary { background:var(--accent); border:none; border-radius:var(--radius); color:#fff; font-size:14px; font-weight:500; padding:10px 22px; cursor:pointer; white-space:nowrap; transition:opacity .15s; }
+    .btn-primary:hover { opacity:.88; }
+    .btn-primary:disabled { opacity:.4; cursor:not-allowed; }
+    .btn-secondary { background:transparent; border:1px solid var(--border2); border-radius:var(--radius); color:var(--text2); font-size:13px; padding:8px 16px; cursor:pointer; transition:border-color .15s,color .15s; }
+    .btn-secondary:hover { border-color:var(--accent); color:var(--text); }
+    .btn-danger { background:transparent; border:1px solid var(--coral); border-radius:var(--radius); color:var(--coral); font-size:13px; padding:8px 16px; cursor:pointer; }
+    .btn-danger:hover { opacity:.75; }
+    /* Upload zone */
+    .upload-zone { border:2px dashed var(--border2); border-radius:var(--radius); padding:2rem; text-align:center; cursor:pointer; transition:border-color .15s,background .15s; position:relative; }
+    .upload-zone:hover, .upload-zone.drag-over { border-color:var(--accent); background:var(--accent-dim); }
+    .upload-zone input[type="file"] { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+    .upload-zone p { font-size:14px; color:var(--text2); margin-top:8px; }
+    .upload-zone .icon { font-size:28px; }
+    /* Status */
+    #status-bar, #bulk-status-bar { display:none; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:10px 16px; font-size:13px; color:var(--text2); margin-bottom:1.5rem; }
+    #status-bar.visible, #bulk-status-bar.visible { display:flex; }
+    .spinner { width:16px; height:16px; border:2px solid var(--border2); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; flex-shrink:0; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    /* Results */
+    #result { display:none; }
+    #result.visible { display:block; }
+    /* Score hero */
+    .score-hero { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:1.75rem; display:flex; gap:1.5rem; align-items:flex-start; margin-bottom:1rem; }
+    .score-ring { flex-shrink:0; width:96px; height:96px; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; border:3px solid; }
+    .score-ring .num { font-size:28px; font-weight:700; line-height:1; }
+    .score-ring .lbl { font-size:10px; color:var(--text2); letter-spacing:.5px; margin-top:2px; }
+    .score-info { flex:1; min-width:0; }
+    .score-info h2 { font-size:20px; font-weight:600; letter-spacing:-.3px; margin-bottom:4px; word-break:break-all; }
+    .score-info .dev { font-size:13px; color:var(--text2); margin-bottom:10px; }
+    .risk-badge { display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:500; padding:4px 12px; border-radius:20px; border:1px solid; }
+    .meta-row { display:flex; flex-wrap:wrap; gap:12px; margin-top:14px; }
+    .meta-item { font-size:12px; color:var(--text2); display:flex; align-items:center; gap:5px; }
+    .meta-item strong { color:var(--text); font-weight:500; }
+    .source-badge { display:inline-flex; align-items:center; gap:5px; font-size:11px; padding:3px 10px; border-radius:20px; border:1px solid var(--border); color:var(--text2); background:var(--surface2); margin-top:10px; }
+    .source-badge.db    { border-color:var(--teal); color:var(--teal); background:var(--teal-bg); }
+    .source-badge.store { border-color:var(--blue); color:var(--blue); background:var(--blue-bg); }
+    .source-badge.blocklist { border-color:var(--red); color:var(--red); background:var(--red-bg); }
+    /* Section */
+    .section-title { font-size:12px; font-weight:600; letter-spacing:.6px; color:var(--text3); text-transform:uppercase; margin:1.5rem 0 .75rem; }
+    .breakdown-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px; margin-bottom:1rem; }
+    .breakdown-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:1rem 1.1rem; }
+    .breakdown-card .bc-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+    .breakdown-card .bc-label { font-size:12px; color:var(--text2); font-weight:500; }
+    .bc-score-pill { font-size:11px; font-weight:600; padding:2px 9px; border-radius:20px; border:1px solid; }
+    .breakdown-card .bc-detail { font-size:12px; color:var(--text2); line-height:1.5; }
+    .perms-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:1rem 1.1rem; margin-bottom:1rem; }
+    .perm-tags { display:flex; flex-wrap:wrap; gap:6px; }
+    .perm-tag { font-size:12px; padding:3px 10px; border-radius:20px; border:1px solid; font-family:'SF Mono','Fira Code',monospace; }
+    .perm-tag.high   { color:var(--red);   border-color:var(--red);   background:var(--red-bg); }
+    .perm-tag.medium { color:var(--amber); border-color:var(--amber); background:var(--amber-bg); }
+    .perm-tag.low    { color:var(--teal);  border-color:var(--teal);  background:var(--teal-bg); }
+    .trust-note { border-radius:var(--radius); padding:.9rem 1.1rem; font-size:13px; border-left:3px solid; margin-bottom:1rem; line-height:1.5; }
+    /* Bulk results table */
+    .bulk-toolbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:8px; }
+    .bulk-summary { font-size:13px; color:var(--text2); }
+    .bulk-table-wrap { overflow-x:auto; border-radius:var(--radius); border:1px solid var(--border); }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th { background:var(--surface2); color:var(--text2); font-weight:500; font-size:11px; letter-spacing:.4px; text-transform:uppercase; padding:10px 12px; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; }
+    td { padding:10px 12px; border-bottom:1px solid var(--border); color:var(--text); vertical-align:middle; }
+    tr:last-child td { border-bottom:none; }
+    tr:hover td { background:var(--surface2); }
+    .td-id { font-family:monospace; font-size:11px; color:var(--text3); }
+    /* Progress bar */
+    .progress-wrap { margin:12px 0; }
+    .progress-bar-bg { background:var(--surface2); border-radius:20px; height:6px; overflow:hidden; }
+    .progress-bar-fill { background:var(--accent); height:6px; border-radius:20px; transition:width .3s; }
+    .progress-text { font-size:12px; color:var(--text2); margin-top:6px; }
+    /* Admin panel */
+    .admin-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:1rem 1.1rem; margin-bottom:1rem; }
+    .admin-card summary { font-size:13px; color:var(--text2); cursor:pointer; user-select:none; display:flex; align-items:center; gap:6px; list-style:none; }
+    .admin-card summary::-webkit-details-marker { display:none; }
+    .admin-card summary:hover { color:var(--text); }
+    .admin-fields { margin-top:1rem; display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .admin-fields .full { grid-column:1/-1; }
+    .field-group label { display:block; font-size:11px; color:var(--text3); margin-bottom:4px; letter-spacing:.3px; }
+    .field-group input,.field-group select,.field-group textarea { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px; padding:7px 10px; outline:none; transition:border-color .15s; }
+    .field-group input:focus,.field-group select:focus,.field-group textarea:focus { border-color:var(--accent); }
+    .field-group select option { background:var(--surface2); }
+    .field-group textarea { resize:vertical; min-height:60px; font-family:inherit; }
+    .admin-actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+    /* Modal */
+    .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:100; align-items:center; justify-content:center; }
+    .modal-overlay.open { display:flex; }
+    .modal { background:var(--surface); border:1px solid var(--border2); border-radius:var(--radius-lg); padding:1.75rem; width:min(440px,92vw); }
+    .modal h2 { font-size:16px; font-weight:600; margin-bottom:.5rem; }
+    .modal p  { font-size:13px; color:var(--text2); margin-bottom:1.25rem; line-height:1.5; }
+    .modal .field-group { margin-bottom:1rem; }
+    .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:1.5rem; }
+    .modal-status { font-size:12px; margin-top:8px; min-height:18px; }
+    .modal-status.ok  { color:var(--green); }
+    .modal-status.err { color:var(--red); }
+    /* DB browser */
+    .db-section { margin-top:2rem; padding-top:1.5rem; border-top:1px solid var(--border); }
+    .db-grid { display:flex; flex-direction:column; gap:6px; }
+    .db-row { display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:.65rem 1rem; font-size:13px; }
+    .db-row-left { display:flex; flex-direction:column; gap:2px; }
+    .db-row .ext-id { font-family:monospace; font-size:11px; color:var(--text3); }
+    .db-row-right { display:flex; align-items:center; gap:8px; }
+    .btn-sm { font-size:11px; padding:3px 10px; background:transparent; border:1px solid var(--border2); border-radius:6px; color:var(--text2); cursor:pointer; }
+    .btn-sm:hover { color:var(--text); border-color:var(--accent); }
+    /* Error */
+    .error-card { background:var(--red-bg); border:1px solid var(--red); border-radius:var(--radius); padding:1rem 1.1rem; font-size:13px; color:var(--red); margin-bottom:1rem; }
+    /* Colour helpers */
+    .c-green { color:var(--green); border-color:var(--green); background:var(--green-bg); }
+    .c-teal  { color:var(--teal);  border-color:var(--teal);  background:var(--teal-bg);  }
+    .c-amber { color:var(--amber); border-color:var(--amber); background:var(--amber-bg); }
+    .c-coral { color:var(--coral); border-color:var(--coral); background:var(--coral-bg); }
+    .c-red   { color:var(--red);   border-color:var(--red);   background:var(--red-bg);   }
+    .ring-green { color:var(--green); border-color:var(--green); }
+    .ring-teal  { color:var(--teal);  border-color:var(--teal);  }
+    .ring-amber { color:var(--amber); border-color:var(--amber); }
+    .ring-coral { color:var(--coral); border-color:var(--coral); }
+    .ring-red   { color:var(--red);   border-color:var(--red);   }
+    @media(max-width:560px){
+      .score-hero{flex-direction:column;align-items:center;text-align:center;}
+      .meta-row{justify-content:center;}
+      .admin-fields{grid-template-columns:1fr;}
+      .admin-fields .full{grid-column:1;}
+      .bulk-toolbar{flex-direction:column;align-items:flex-start;}
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">🛡️</div>
+      <div><h1>Extension Risk Checker</h1><p>Analyse Chrome extensions by ID</p></div>
+    </div>
+    <button class="btn-admin" onclick="openAdminLogin()">🔑 Admin</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('single',this)">🔍 Single lookup</button>
+    <button class="tab" onclick="switchTab('bulk',this)">📋 Bulk upload</button>
+    <button class="tab" onclick="switchTab('blocklist',this)">🚫 Blocklist import</button>
+  </div>
+
+  <!-- ── TAB: Single lookup ── -->
+  <div class="tab-panel active" id="tab-single">
+    <div class="card">
+      <label for="ext-id-input">Chrome Extension ID</label>
+      <div class="search-row">
+        <input id="ext-id-input" type="text" placeholder="e.g. aapbdbdomjkkjkaonfhkkikfgjllcleb" maxlength="40" spellcheck="false" autocomplete="off" />
+        <button class="btn-primary" id="btn-check" onclick="runCheck()">Check</button>
+      </div>
+      <p class="hint">Find an ID from the <a href="https://chrome.google.com/webstore" target="_blank" rel="noopener noreferrer">Chrome Web Store</a> URL (last segment), or via <code>chrome://extensions</code> with Developer mode on.</p>
+    </div>
+    <div id="status-bar"><div class="spinner"></div><span id="status-text">Checking…</span></div>
+    <div id="result"></div>
+    <div class="db-section" id="db-section" style="display:none">
+      <p class="section-title">Database — all checked extensions</p>
+      <div class="db-grid" id="db-grid"></div>
+    </div>
+  </div>
+
+  <!-- ── TAB: Bulk upload ── -->
+  <div class="tab-panel" id="tab-bulk">
+    <div class="card">
+      <label>Upload a file of extension IDs</label>
+      <div class="upload-zone" id="bulk-drop-zone">
+        <input type="file" id="bulk-file-input" accept=".txt,.csv,.tsv" onchange="handleBulkFile(this.files[0])" />
+        <div class="icon">📂</div>
+        <p>Drop a file here or click to browse</p>
+        <p style="font-size:11px;margin-top:6px;color:var(--text3)">Accepted formats: .txt (one ID per line), .csv or .tsv (ID in first column, header row optional)</p>
+      </div>
+      <div style="margin-top:1rem;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-primary" id="btn-bulk-run" onclick="runBulkCheck()" disabled>Run checks</button>
+        <button class="btn-secondary" onclick="downloadBulkCSV()" id="btn-download-csv" style="display:none">⬇ Download CSV</button>
+        <button class="btn-secondary" onclick="clearBulk()">Clear</button>
+      </div>
+    </div>
+    <div id="bulk-status-bar"><div class="spinner"></div><span id="bulk-status-text">Checking…</span></div>
+    <div id="bulk-result"></div>
+  </div>
+
+  <!-- ── TAB: Blocklist import ── -->
+  <div class="tab-panel" id="tab-blocklist">
+    <div class="card">
+      <p style="font-size:13px;color:var(--text2);margin-bottom:1rem;line-height:1.6;">
+        Import a tab-separated blocklist file. Extensions will be added to your database as <strong style="color:var(--red)">malicious</strong>.
+        Expected columns: <code>extension_id</code>, <code>name</code>, <code>reason</code>, <code>source</code>, <code>insert_date_fmt</code>.
+      </p>
+      <div class="upload-zone" id="bl-drop-zone">
+        <input type="file" id="bl-file-input" accept=".txt,.csv,.tsv" onchange="handleBlocklistFile(this.files[0])" />
+        <div class="icon">🚫</div>
+        <p>Drop blocklist file here or click to browse</p>
+      </div>
+      <div id="bl-preview" style="margin-top:1rem;display:none;">
+        <p class="section-title">Preview (<span id="bl-count">0</span> entries)</p>
+        <div class="bulk-table-wrap" style="max-height:300px;overflow-y:auto;">
+          <table><thead><tr><th>ID</th><th>Name</th><th>Reason</th><th>Source</th><th>Date</th></tr></thead>
+          <tbody id="bl-preview-body"></tbody></table>
+        </div>
+        <div style="margin-top:1rem;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-primary" id="btn-bl-import" onclick="runBlocklistImport()">🚫 Import as malicious</button>
+          <button class="btn-secondary" onclick="clearBlocklist()">Clear</button>
+        </div>
+        <div id="bl-import-status" style="font-size:12px;margin-top:8px;min-height:16px;color:var(--text2)"></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.shell -->
+
+<!-- Admin modal -->
+<div class="modal-overlay" id="admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title">
+  <div class="modal">
+    <h2 id="admin-modal-title">🔑 Admin access</h2>
+    <p>Enter your admin passphrase to unlock editing and flagging of database entries.</p>
+    <div class="field-group"><label for="admin-pass">Passphrase</label><input type="password" id="admin-pass" placeholder="Enter passphrase" /></div>
+    <div class="modal-status" id="admin-modal-status" role="alert" aria-live="polite"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeAdminLogin()">Cancel</button>
+      <button class="btn-primary" onclick="verifyAdmin()">Unlock</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═════════════════════════════════════════════════════════════════════════════
+// CONFIGURATION — replace ALL placeholders before publishing
+// ═════════════════════════════════════════════════════════════════════════════
+const WORKER_URL = 'https://YOUR_WORKER_NAME.YOUR_CF_SUBDOMAIN.workers.dev';
+
+// [H2] Admin hash: SHA-256 of your passphrase. Use a LONG random passphrase
+// (20+ chars). Short/dictionary passwords are offline-crackable from this hash.
+// Generate hash: crypto.subtle.digest('SHA-256',new TextEncoder().encode('passphrase'))
+//   .then(b=>console.log([...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')))
+const ADMIN_HASH = 'REPLACE_WITH_SHA256_HASH_OF_YOUR_PASSPHRASE';
+
+// [C1] Write secret — must match WRITE_SECRET in your Cloudflare Worker secrets.
+// Generate: open browser console, run: crypto.getRandomValues(new Uint8Array(32))
+//   then encode as hex. Or use: openssl rand -hex 32 in a terminal.
+// This is visible in page source — that is acceptable because it only allows
+// writes IF the Worker also has the matching secret. Rotate it if compromised.
+const WRITE_SECRET = 'REPLACE_WITH_YOUR_WRITE_SECRET';
+
+// [L2] Admin session timeout in milliseconds (default 30 minutes)
+const ADMIN_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SECURITY HELPERS
+// ═════════════════════════════════════════════════════════════════════════════
+const EXT_ID_RE = /^[a-z]{32}$/;
+
+// Strict HTML escaping — used everywhere user/external data touches the DOM
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Safe text node setter — avoids innerHTML entirely for untrusted values
+function setText(el, val) { if (el) el.textContent = String(val ?? ''); }
+
+// Validate extension ID — reject anything that doesn't match exactly
+function isValidId(id) { return EXT_ID_RE.test(String(id ?? '')); }
+
+// [C3] Validate a URL is https:// only — used before rendering any stored URL as href
+function isSafeUrl(url) {
+  if (typeof url !== 'string' || !url) return false;
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:';
+  } catch { return false; }
+}
+
+// [H5] Validate a URL is specifically the Chrome Web Store
+function isCWSUrl(url) {
+  if (typeof url !== 'string' || !url) return false;
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.hostname === 'chrome.google.com';
+  } catch { return false; }
+}
+
+// Sanitise a single field value for safe use in CSV
+// [M4 CSV] Prevents CSV injection (=, +, -, @ starters), strips control chars
+function csvField(val) {
+  let s = String(val ?? '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+  if (/^[=+\-@\t\r\n]/.test(s)) s = '\'' + s; // prefix to neutralise formula injection
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+// [M6] Allowlist of valid tab names — switchTab() must only accept these
+const VALID_TAB_NAMES = new Set(['single', 'bulk', 'blocklist']);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN AUTH
+// [H2] Brute-force lockout: 5 attempts then 5-minute cooldown
+// [L2] Session timeout: auto-revoke after ADMIN_SESSION_TIMEOUT_MS
+// ═════════════════════════════════════════════════════════════════════════════
+let isAdmin = false;
+let adminSessionTimer = null;
+let adminAttempts = 0;
+let adminLockedUntil = 0;
+const MAX_ADMIN_ATTEMPTS = 5;
+const ADMIN_LOCKOUT_MS   = 5 * 60 * 1000; // 5 minutes
+
+function openAdminLogin() {
+  document.getElementById('admin-pass').value = '';
+  setText(document.getElementById('admin-modal-status'), '');
+  document.getElementById('admin-modal-status').className = 'modal-status';
+  // Show lockout remaining if applicable
+  if (Date.now() < adminLockedUntil) {
+    const secs = Math.ceil((adminLockedUntil - Date.now()) / 1000);
+    setModalStatus(`Too many attempts. Try again in ${secs}s.`, false);
+  }
+  document.getElementById('admin-modal').classList.add('open');
+  setTimeout(() => document.getElementById('admin-pass').focus(), 100);
+}
+function closeAdminLogin() { document.getElementById('admin-modal').classList.remove('open'); }
+
+// [L2] Revoke admin session
+function revokeAdmin() {
+  isAdmin = false;
+  if (adminSessionTimer) { clearTimeout(adminSessionTimer); adminSessionTimer = null; }
+  // If result panel is open, re-render without admin panel
+  if (document.getElementById('result').classList.contains('visible')) {
+    const id = document.getElementById('result').dataset.extId;
+    if (id && isValidId(id)) recheckId(id);
+  }
+}
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifyAdmin() {
+  // [H2] Lockout check
+  if (Date.now() < adminLockedUntil) {
+    const secs = Math.ceil((adminLockedUntil - Date.now()) / 1000);
+    setModalStatus(`Locked. Try again in ${secs}s.`, false);
+    return;
+  }
+  const pass = document.getElementById('admin-pass').value;
+  if (!pass || pass.length < 8) { setModalStatus('Passphrase must be at least 8 characters.', false); return; }
+  const hash = await sha256(pass);
+
+  // Constant-time string comparison in JS (same length guaranteed since SHA-256 output is fixed)
+  let mismatch = 0;
+  const a = hash, b = ADMIN_HASH;
+  if (a.length !== b.length) { mismatch = 1; }
+  else { for (let i = 0; i < a.length; i++) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i); }
+
+  if (mismatch === 0) {
+    isAdmin = true;
+    adminAttempts = 0;
+    closeAdminLogin();
+    // [L2] Start session timeout
+    if (adminSessionTimer) clearTimeout(adminSessionTimer);
+    adminSessionTimer = setTimeout(revokeAdmin, ADMIN_SESSION_TIMEOUT_MS);
+    if (document.getElementById('result').classList.contains('visible')) {
+      const id = document.getElementById('result').dataset.extId;
+      if (id && isValidId(id)) recheckId(id);
+    }
+  } else {
+    adminAttempts++;
+    if (adminAttempts >= MAX_ADMIN_ATTEMPTS) {
+      adminLockedUntil = Date.now() + ADMIN_LOCKOUT_MS;
+      adminAttempts = 0;
+      setModalStatus(`Too many attempts. Locked for 5 minutes.`, false);
+    } else {
+      setModalStatus(`Incorrect passphrase. ${MAX_ADMIN_ATTEMPTS - adminAttempts} attempt(s) remaining.`, false);
+    }
+  }
+}
+function setModalStatus(msg, ok) {
+  const el = document.getElementById('admin-modal-status');
+  setText(el, (ok ? '✓ ' : '✗ ') + msg);
+  el.className = 'modal-status ' + (ok ? 'ok' : 'err');
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// WORKER API
+// ═════════════════════════════════════════════════════════════════════════════
+async function workerReadDb() {
+  const r = await fetch(`${WORKER_URL}/db`, { signal: AbortSignal.timeout(12000) });
+  // [M4] Don't expose raw HTTP status to user-facing messages
+  if (!r.ok) throw new Error('Failed to read database. Check Worker configuration.');
+  return r.json();
+}
+
+async function workerWriteDb(data, sha) {
+  const r = await fetch(`${WORKER_URL}/db`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Write-Secret': WRITE_SECRET   // [C1] server-side auth header
+    },
+    body: JSON.stringify({ data, sha }),
+    signal: AbortSignal.timeout(20000)
+  });
+  // [C2] 409 = SHA conflict from concurrent write — actionable message
+  if (r.status === 409) throw new Error('Database conflict — another save is in progress. Please reload and retry.');
+  if (r.status === 401) throw new Error('Write rejected — check WRITE_SECRET configuration.');
+  if (!r.ok) throw new Error('Database write failed. Please try again.');
+}
+
+async function workerFetchStore(id) {
+  if (!isValidId(id)) throw new Error('Invalid extension ID');
+  const r = await fetch(`${WORKER_URL}/store/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(15000) });
+  if (r.status === 404) throw new Error('Extension not found in the Chrome Web Store. Double-check the ID.');
+  if (!r.ok) throw new Error(`Chrome Web Store fetch failed (${r.status})`);
+  const { html } = await r.json();
+  return html;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// RISK ENGINE
+// ═════════════════════════════════════════════════════════════════════════════
+const HIGH_P  = new Set(['<all_urls>','http://*/*','https://*/*','webRequestBlocking','debugger','history','bookmarks','nativeMessaging','proxy','clipboardRead','desktopCapture','pageCapture','privacy','browsingData','downloads.open']);
+const MED_P   = new Set(['tabs','webRequest','cookies','webNavigation','identity','geolocation','notifications','management','downloads','sessions','topSites','processes']);
+const TRUSTED_DEVS = ['google llc','microsoft corporation','mozilla','apple inc','adobe','paypal','lastpass','bitwarden','dashlane','1password','nord security','aura','evernote','grammarly','cisco'];
+
+function scorePermissions(perms = []) {
+  let pts = 0; const flags = [];
+  for (const p of (perms || [])) {
+    if (HIGH_P.has(p) || (typeof p === 'string' && p.includes('://*'))) { pts += 15; flags.push({ level:'high', text:p }); }
+    else if (MED_P.has(p)) { pts += 5; flags.push({ level:'medium', text:p }); }
+    else { pts += 1; flags.push({ level:'low', text:p }); }
+  }
+  const score = Math.min(100, pts);
+  const detail = score===0?'No permissions — minimal risk.':score<10?'Very limited permissions.':score<30?'Standard permission set.':score<60?'Elevated permissions — review before installing.':'High-risk permissions — broad browser/data access.';
+  return { score, detail, flags };
+}
+function scoreDeveloper(dev, verified) {
+  if (!dev) return { score:65, detail:'Developer unknown.' };
+  const trusted = TRUSTED_DEVS.some(d => dev.toLowerCase().includes(d));
+  if (trusted && verified !== false) return { score:0,  detail:`Verified trusted publisher: ${dev}.` };
+  if (trusted) return { score:20, detail:`Appears to be ${dev} — unverified.` };
+  if (verified) return { score:30, detail:'Verified developer — not a top-tier publisher.' };
+  return { score:60, detail:'Unverified developer. No external trust signals.' };
+}
+function scoreAge(pub) {
+  if (!pub) return { score:50, detail:'Publish date unknown.' };
+  const m = (Date.now() - new Date(pub)) / (1000*60*60*24*30);
+  if (m < 1)  return { score:90, detail:'Brand new (< 1 month). No track record.' };
+  if (m < 3)  return { score:70, detail:'Very new (< 3 months).' };
+  if (m < 12) return { score:40, detail:'Relatively new (< 1 year).' };
+  if (m < 36) return { score:20, detail:'Established (1–3 years).' };
+  return { score:5, detail:`Long-standing (${Math.floor(m/12)} years).` };
+}
+function scoreUsers(u) {
+  if (u == null) return { score:40, detail:'User count unknown.' };
+  if (u >= 1e6) return { score:0,  detail:`${fmt(u)} users — widely vetted.` };
+  if (u >= 1e5) return { score:15, detail:`${fmt(u)} users — large install base.` };
+  if (u >= 1e4) return { score:30, detail:`${fmt(u)} users — moderate install base.` };
+  if (u >= 1e3) return { score:50, detail:`${fmt(u)} users — small install base.` };
+  return { score:70, detail:`${fmt(u)} users — very few installs.` };
+}
+function scoreUpdate(d) {
+  if (!d) return { score:40, detail:'Last update unknown.' };
+  const days = (Date.now() - new Date(d)) / (1000*60*60*24);
+  if (days < 30)  return { score:5,  detail:'Updated recently.' };
+  if (days < 90)  return { score:10, detail:'Updated within 3 months.' };
+  if (days < 180) return { score:20, detail:'Updated within 6 months.' };
+  if (days < 365) return { score:40, detail:'Not updated in 6–12 months.' };
+  return { score:65, detail:`Not updated in ${Math.floor(days/365)} year(s).` };
+}
+function computeRisk(ext) {
+  const perm=scorePermissions(ext.permissions), dev=scoreDeveloper(ext.developer,ext.developerVerified),
+        age=scoreAge(ext.publishedDate), users=scoreUsers(ext.users), upd=scoreUpdate(ext.lastUpdated);
+  if (ext.trustLevel === 'malicious') return { finalScore:97, risk:{label:'Critical',color:'red'}, breakdown:{perm,dev,age,users,upd} };
+  let s = perm.score*.35 + dev.score*.25 + age.score*.15 + users.score*.10 + upd.score*.10;
+  if (ext.trustLevel==='trusted') s = Math.max(0, s-15);
+  if (ext.trustLevel==='caution') s += 10;
+  const finalScore = Math.min(100, Math.max(0, Math.round(s)));
+  const risk = finalScore<=15?{label:'Very Low',color:'green'}:finalScore<=35?{label:'Low',color:'teal'}:finalScore<=55?{label:'Moderate',color:'amber'}:finalScore<=75?{label:'High',color:'coral'}:{label:'Critical',color:'red'};
+  return { finalScore, risk, breakdown:{perm,dev,age,users,upd} };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// STORE HTML PARSING
+// ═════════════════════════════════════════════════════════════════════════════
+function parseStoreHtml(html, id) {
+  const $ = s => { const m = html.match(s); return m ? m[1].trim() : null; };
+  const rawTitle = $(/<title[^>]*>([^<]+)<\/title>/i) || '';
+  const name = rawTitle.replace(/\s*[-–]\s*Chrome Web Store.*/i, '').trim() || 'Unknown Extension';
+  let dev = $(/offered by[:\s]+<[^>]+>([^<]+)<\//) || $(/["']developer["'][^>]*>([^<]{2,60})<\//) || 'Unknown';
+  dev = dev.replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/<[^>]+>/g,'').trim();
+  if (dev.length > 60 || dev === 'Unknown') {
+    const jm = html.match(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i);
+    if (jm) { try { const j = JSON.parse(jm[1]); dev = j.author?.name || j.publisher?.name || dev; } catch {} }
+  }
+  const ur = $(/(\d[\d,]+)\s+users/i);
+  const users = ur ? parseInt(ur.replace(/,/g,''), 10) : null;
+  const kp = ['<all_urls>','tabs','activeTab','storage','cookies','webRequest','webRequestBlocking','history','bookmarks','nativeMessaging','proxy','clipboardRead','desktopCapture','pageCapture','downloads','identity','geolocation','notifications','management','webNavigation','debugger','browsingData','processes','privacy','sessions','topSites'];
+  const permissions = kp.filter(p => html.includes(`"${p}"`) || html.includes(`'${p}'`));
+  const ur2 = $(/updated[^<]{0,40}((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4})/i);
+  const lastUpdated = ur2 ? new Date(ur2).toISOString().split('T')[0] : null;
+  const dl = (dev || '').toLowerCase();
+  return { id, name, developer:dev||'Unknown', developerVerified:dl.includes('google')||dl.includes('microsoft')||false, publishedDate:null, lastUpdated, users, permissions, category:null, trustLevel:'unknown', trustReason:null, storeUrl:`https://chrome.google.com/webstore/detail/${id}`, fetchedAt:new Date().toISOString(), source:'store' };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TABS [M6] — allowlisted tab names only
+// ═════════════════════════════════════════════════════════════════════════════
+function switchTab(name, btn) {
+  if (!VALID_TAB_NAMES.has(name)) return; // [M6] reject unknown tab names
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+  const panel = document.getElementById('tab-' + name);
+  if (!panel) return; // guard against DOM manipulation
+  panel.classList.add('active');
+  btn.classList.add('active');
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SINGLE LOOKUP
+// ═════════════════════════════════════════════════════════════════════════════
+async function runCheck() {
+  const raw = document.getElementById('ext-id-input').value.trim().toLowerCase();
+  if (!raw) return;
+  if (!isValidId(raw)) { showError('That doesn\'t look like a valid extension ID. It should be exactly 32 lowercase letters.'); return; }
+  document.getElementById('btn-check').disabled = true;
+  document.getElementById('result').classList.remove('visible');
+  showStatus('Reading database…');
+  try {
+    const { data:db, sha } = await workerReadDb();
+    db.extensions = db.extensions || {};
+    let ext = db.extensions[raw] || null, source = 'db';
+    if (!ext) {
+      setStatus('Not in database — fetching from Chrome Web Store…');
+      const html = await workerFetchStore(raw);
+      ext = parseStoreHtml(html, raw); source = 'store';
+      setStatus('Saving to database…');
+      db.extensions[raw] = ext;
+      try { await workerWriteDb(db, sha); } catch(e) { console.warn('DB write failed:', e); }
+    } else { ext.source = 'db'; }
+    hideStatus();
+    renderResult(ext, source);
+    renderDbBrowser(db);
+  } catch(err) {
+    hideStatus();
+    showError(err.message || 'Something went wrong. Please try again.');
+  } finally {
+    document.getElementById('btn-check').disabled = false;
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BULK UPLOAD [H3] — file size and type validated before reading
+// ═════════════════════════════════════════════════════════════════════════════
+const MAX_FILE_BYTES  = 5 * 1024 * 1024;  // 5 MB
+const MAX_BULK_IDS    = 500;               // cap API calls per session
+let bulkIds = [];
+let bulkResults = [];
+
+function handleBulkFile(file) {
+  if (!file) return;
+  // [H3] Size check
+  if (file.size > MAX_FILE_BYTES) {
+    document.getElementById('bulk-result').innerHTML =
+      `<div class="error-card">File too large (max 5 MB). Your file is ${(file.size/1024/1024).toFixed(1)} MB.</div>`;
+    return;
+  }
+  // [H3] MIME / extension check (defence in depth — accept only plain text types)
+  const allowed = ['text/plain','text/csv','text/tab-separated-values','application/csv',''];
+  if (!allowed.includes(file.type) && !file.name.match(/\.(txt|csv|tsv)$/i)) {
+    document.getElementById('bulk-result').innerHTML =
+      `<div class="error-card">Invalid file type. Please upload a .txt, .csv, or .tsv file.</div>`;
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const ids = [];
+    for (const line of lines) {
+      if (ids.length >= MAX_BULK_IDS) break; // [H3] cap iterations
+      const first = line.split(/[\t,]/)[0].trim().toLowerCase();
+      if (isValidId(first)) ids.push(first);
+    }
+    bulkIds = [...new Set(ids)];
+    document.getElementById('btn-bulk-run').disabled = bulkIds.length === 0;
+    const statusEl = document.getElementById('bulk-result');
+    const limitNote = lines.length > MAX_BULK_IDS ? ` (capped at ${MAX_BULK_IDS})` : '';
+    if (bulkIds.length) {
+      const msg = document.createElement('div');
+      msg.className = 'card';
+      msg.style.cssText = 'padding:1rem 1.25rem;font-size:13px;color:var(--text2)';
+      msg.innerHTML = `Found <strong style="color:var(--text)">${bulkIds.length}</strong> valid extension IDs${esc(limitNote)}. Click <em>Run checks</em> to analyse them.`;
+      statusEl.innerHTML = '';
+      statusEl.appendChild(msg);
+    } else {
+      statusEl.innerHTML = `<div class="error-card">No valid extension IDs found. Each ID must be exactly 32 lowercase letters.</div>`;
+    }
+    document.getElementById('btn-download-csv').style.display = 'none';
+  };
+  reader.onerror = () => {
+    document.getElementById('bulk-result').innerHTML = `<div class="error-card">Failed to read file.</div>`;
+  };
+  reader.readAsText(file);
+}
+
+async function runBulkCheck() {
+  if (!bulkIds.length) return;
+  bulkResults = [];
+  document.getElementById('btn-bulk-run').disabled = true;
+  document.getElementById('btn-download-csv').style.display = 'none';
+  document.getElementById('bulk-status-bar').classList.add('visible');
+
+  let db, sha;
+  try {
+    setBulkStatus('Reading database…');
+    ({ data:db, sha } = await workerReadDb());
+    db.extensions = db.extensions || {};
+  } catch(e) {
+    setBulkStatus('Failed to read database: ' + (e.message || 'unknown error'));
+    document.getElementById('btn-bulk-run').disabled = false;
+    return;
+  }
+
+  const total = bulkIds.length;
+  let dbDirty = false;
+
+  for (let i = 0; i < total; i++) {
+    const id = bulkIds[i];
+    setBulkStatus(`Checking ${i+1} of ${total}: ${id}…`);
+
+    let ext = db.extensions[id] || null;
+    let source = 'db';
+    let error = null;
+
+    if (!ext) {
+      try {
+        const html = await workerFetchStore(id);
+        ext = parseStoreHtml(html, id);
+        source = 'store';
+        db.extensions[id] = ext;
+        dbDirty = true;
+      } catch(e) {
+        error = e.message || 'Lookup failed';
+        ext = { id, name:'Unknown', trustLevel:'unknown', source:'error' };
+      }
+    } else {
+      ext.source = 'db';
+    }
+
+    const { finalScore, risk } = computeRisk(ext);
+    bulkResults.push({ id, ext, source, finalScore, risk, error });
+    renderBulkTable();
+  }
+
+  // Save any new entries
+  if (dbDirty) {
+    setBulkStatus('Saving new entries to database…');
+    try { await workerWriteDb(db, sha); renderDbBrowser(db); } catch(e) { console.warn('Bulk DB write failed:', e); }
+  }
+
+  document.getElementById('bulk-status-bar').classList.remove('visible');
+  document.getElementById('btn-bulk-run').disabled = false;
+  document.getElementById('btn-download-csv').style.display = '';
+}
+
+function renderBulkTable() {
+  const el = document.getElementById('bulk-result');
+  if (!bulkResults.length) { el.innerHTML = ''; return; }
+  const rows = bulkResults.map(r => {
+    const name = esc(r.ext.name || r.id);
+    const dev  = esc(r.ext.developer || '—');
+    const col  = r.risk.color;
+    const pill = `<span class="bc-score-pill c-${col}" style="font-size:11px;padding:2px 9px;border-radius:20px;border:1px solid;">${r.risk.label} (${r.finalScore})</span>`;
+    const badge = r.error
+      ? `<span style="font-size:11px;color:var(--red)">⚠ ${esc(r.error)}</span>`
+      : `<span class="source-badge ${r.source}" style="margin-top:0">${r.source==='db'?'📂 DB':'🌐 Store'}</span>`;
+    return `<tr>
+      <td class="td-id">${esc(r.id)}</td>
+      <td>${name}</td>
+      <td>${dev}</td>
+      <td>${pill}</td>
+      <td>${badge}</td>
+    </tr>`;
+  }).join('');
+
+  const done  = bulkResults.length;
+  const total = bulkIds.length;
+  const crit  = bulkResults.filter(r=>r.risk.label==='Critical').length;
+  const high  = bulkResults.filter(r=>r.risk.label==='High').length;
+
+  el.innerHTML = `
+    <div class="bulk-toolbar">
+      <div class="bulk-summary">Checked <strong>${done}/${total}</strong> extensions &nbsp;·&nbsp; <span style="color:var(--red)">${crit} Critical</span> &nbsp;·&nbsp; <span style="color:var(--coral)">${high} High</span></div>
+    </div>
+    <div class="bulk-table-wrap">
+      <table>
+        <thead><tr><th>Extension ID</th><th>Name</th><th>Developer</th><th>Risk</th><th>Source</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function downloadBulkCSV() {
+  if (!bulkResults.length) return;
+  const header = ['Extension ID','Name','Developer','Risk Label','Risk Score','Trust Level','Permissions','Published','Last Updated','Users','Source','Error'];
+  const rows = bulkResults.map(r => [
+    csvField(r.id),
+    csvField(r.ext.name),
+    csvField(r.ext.developer),
+    csvField(r.risk.label),
+    csvField(r.finalScore),
+    csvField(r.ext.trustLevel),
+    csvField((r.ext.permissions||[]).join('; ')),
+    csvField(r.ext.publishedDate),
+    csvField(r.ext.lastUpdated),
+    csvField(r.ext.users),
+    csvField(r.source),
+    csvField(r.error || '')
+  ].join(','));
+  const csv = [header.join(','), ...rows].join('\r\n');
+  const blob = new Blob(['\ufeff' + csv], { type:'text/csv;charset=utf-8;' }); // BOM for Excel
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `extension-risk-report-${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+function clearBulk() {
+  bulkIds = []; bulkResults = [];
+  document.getElementById('bulk-file-input').value = '';
+  document.getElementById('bulk-result').innerHTML = '';
+  document.getElementById('btn-bulk-run').disabled = true;
+  document.getElementById('btn-download-csv').style.display = 'none';
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BLOCKLIST IMPORT [H3] — size/type validated; [H4] fields sanitised
+// ═════════════════════════════════════════════════════════════════════════════
+let blocklistEntries = [];
+
+function handleBlocklistFile(file) {
+  if (!file) return;
+  // [H3] Size check
+  if (file.size > MAX_FILE_BYTES) {
+    document.getElementById('bl-import-status').textContent = `File too large (max 5 MB).`;
+    return;
+  }
+  const allowed = ['text/plain','text/csv','text/tab-separated-values','application/csv',''];
+  if (!allowed.includes(file.type) && !file.name.match(/\.(txt|csv|tsv)$/i)) {
+    document.getElementById('bl-import-status').textContent = 'Invalid file type. Please upload .txt, .csv, or .tsv.';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    blocklistEntries = [];
+
+    for (const line of lines) {
+      if (blocklistEntries.length >= MAX_BULK_IDS) break; // [H3] cap
+      const cols = line.includes('\t') ? line.split('\t') : line.split(',');
+      const id = (cols[0] || '').trim().toLowerCase();
+      if (!isValidId(id)) continue;
+
+      // [H4] sanitise all text fields — strip control chars, cap length
+      const sanitiseField = (v, max = 300) =>
+        String(v || '').replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, max);
+
+      // [C3] Only store source if it's a valid https:// URL or plain text identifier
+      const rawSource = sanitiseField(cols[3] || '', 300);
+      const safeSource = (() => {
+        try { return new URL(rawSource).protocol === 'https:' ? rawSource : sanitiseField(rawSource, 100); }
+        catch { return sanitiseField(rawSource, 100); }
+      })();
+
+      blocklistEntries.push({
+        id,
+        name:   sanitiseField(cols[1] || '', 200),
+        reason: sanitiseField(cols[2] || '', 300),
+        source: safeSource,
+        date:   sanitiseField(cols[4] || '', 30)
+      });
+    }
+
+    const preview = document.getElementById('bl-preview');
+    const body    = document.getElementById('bl-preview-body');
+    setText(document.getElementById('bl-count'), blocklistEntries.length);
+
+    if (!blocklistEntries.length) {
+      preview.style.display = 'none';
+      document.getElementById('bl-import-status').textContent = 'No valid extension IDs found.';
+      return;
+    }
+
+    // Render preview table — use textContent for safety, no innerHTML with user data
+    body.innerHTML = '';
+    for (const entry of blocklistEntries.slice(0, 100)) { // preview first 100
+      const tr = document.createElement('tr');
+      [entry.id, entry.name, entry.reason, entry.source, entry.date].forEach(val => {
+        const td = document.createElement('td');
+        td.textContent = val || '—';
+        if (val === entry.id) td.className = 'td-id';
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    }
+    if (blocklistEntries.length > 100) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 5; td.style.cssText = 'color:var(--text3);font-size:12px;text-align:center';
+      td.textContent = `…and ${blocklistEntries.length - 100} more`;
+      tr.appendChild(td); body.appendChild(tr);
+    }
+    preview.style.display = 'block';
+    document.getElementById('bl-import-status').textContent = '';
+  };
+  reader.readAsText(file);
+}
+
+async function runBlocklistImport() {
+  if (!blocklistEntries.length) return;
+  const btn = document.getElementById('btn-bl-import');
+  const statusEl = document.getElementById('bl-import-status');
+  btn.disabled = true;
+  setText(statusEl, 'Reading database…');
+
+  try {
+    const { data:db, sha } = await workerReadDb();
+    db.extensions = db.extensions || {};
+    const now = new Date().toISOString();
+    let added = 0, updated = 0;
+
+    for (const entry of blocklistEntries) {
+      const existing = db.extensions[entry.id] || {};
+      const isNew = !db.extensions[entry.id];
+      db.extensions[entry.id] = {
+        ...existing,
+        id:              entry.id,
+        name:            entry.name || existing.name || 'Unknown',
+        developer:       existing.developer || 'Unknown',
+        developerVerified: existing.developerVerified || false,
+        publishedDate:   existing.publishedDate || null,
+        lastUpdated:     existing.lastUpdated || null,
+        users:           existing.users ?? null,
+        permissions:     existing.permissions || [],
+        category:        existing.category || null,
+        trustLevel:      'malicious',
+        trustReason:     entry.reason || 'Flagged via blocklist import',
+        blocklist_reason: entry.reason || null,
+        blocklist_source: entry.source || null,
+        insert_date:     entry.date || null,
+        storeUrl:        existing.storeUrl || `https://chrome.google.com/webstore/detail/${entry.id}`,
+        source:          'blocklist',
+        importedAt:      now
+      };
+      if (isNew) added++; else updated++;
+    }
+
+    setText(statusEl, 'Saving to database…');
+    await workerWriteDb(db, sha);
+    setText(statusEl, `✓ Done — ${added} added, ${updated} updated as malicious.`);
+    statusEl.style.color = 'var(--green)';
+    renderDbBrowser(db);
+
+  } catch(e) {
+    setText(statusEl, '✗ ' + (e.message || 'Import failed.'));
+    statusEl.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function clearBlocklist() {
+  blocklistEntries = [];
+  document.getElementById('bl-file-input').value = '';
+  document.getElementById('bl-preview').style.display = 'none';
+  document.getElementById('bl-preview-body').innerHTML = '';
+  document.getElementById('bl-import-status').textContent = '';
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// RENDER SINGLE RESULT
+// ═════════════════════════════════════════════════════════════════════════════
+function renderResult(ext, source) {
+  const { finalScore, risk, breakdown } = computeRisk(ext);
+  const { perm, dev, age, users, upd } = breakdown;
+
+  // Source badge
+  const sourceBadge = source==='db'
+    ? `<span class="source-badge db">📂 From your database</span>`
+    : source==='blocklist'
+    ? `<span class="source-badge blocklist">🚫 Imported via blocklist</span>`
+    : `<span class="source-badge store">🌐 Fetched from Chrome Web Store &amp; saved</span>`;
+
+  // Permission tags — built with esc()
+  let permHtml = '';
+  if (perm.flags.length) {
+    permHtml = perm.flags.map(f => `<span class="perm-tag ${esc(f.level)}">${esc(f.text)}</span>`).join('');
+  } else {
+    permHtml = '<span style="font-size:12px;color:var(--text3)">No permissions listed</span>';
+  }
+
+  // Trust note
+  let trustHtml = '';
+  if (ext.trustLevel === 'trusted')
+    trustHtml = `<div class="trust-note" style="color:var(--green);border-color:var(--green);background:var(--green-bg)">✅ <strong>Trusted:</strong> ${esc(ext.trustReason||'Confirmed trusted.')}</div>`;
+  else if (ext.trustLevel === 'caution')
+    trustHtml = `<div class="trust-note" style="color:var(--amber);border-color:var(--amber);background:var(--amber-bg)">⚠️ <strong>Caution:</strong> ${esc(ext.trustReason||'Flagged for caution.')}</div>`;
+  else if (ext.trustLevel === 'malicious') {
+    const blNote = ext.blocklist_reason ? ` Reason: ${esc(ext.blocklist_reason)}.` : '';
+    // [C3] Only render blocklist_source as a link if it's a validated https:// URL
+    //      Never trust stored URLs — esc() alone doesn't prevent javascript: URIs
+    let blSrc = '';
+    if (ext.blocklist_source) {
+      if (isSafeUrl(ext.blocklist_source)) {
+        blSrc = ` Source: <a href="${esc(ext.blocklist_source)}" target="_blank" rel="noopener noreferrer nofollow" style="color:var(--red)">${esc(ext.blocklist_source)}</a>.`;
+      } else {
+        // Non-URL source (e.g. "Store Monitoring") — render as plain text only
+        blSrc = ` Source: ${esc(ext.blocklist_source)}.`;
+      }
+    }
+    trustHtml = `<div class="trust-note" style="color:var(--red);border-color:var(--red);background:var(--red-bg)">🚫 <strong>Known malicious:</strong> ${esc(ext.trustReason||'Flagged as malicious.')}${blNote}${blSrc}</div>`;
+  }
+
+  // Breakdown cards
+  const bds = [
+    {label:'Permissions',   score:perm.score,  detail:perm.detail},
+    {label:'Developer',     score:dev.score,   detail:dev.detail },
+    {label:'Extension Age', score:age.score,   detail:age.detail },
+    {label:'Install Base',  score:users.score, detail:users.detail},
+    {label:'Maintenance',   score:upd.score,   detail:upd.detail }
+  ];
+  const bcards = bds.map(b => {
+    const col = b.score<=20?'green':b.score<=45?'amber':'red';
+    return `<div class="breakdown-card">
+      <div class="bc-head"><span class="bc-label">${esc(b.label)}</span><span class="bc-score-pill c-${col}">${b.score}/100</span></div>
+      <div class="bc-detail">${esc(b.detail)}</div>
+    </div>`;
+  }).join('');
+
+  // [H5] Only render storeUrl as a link if it passes chrome.google.com validation
+  const storeLink = isCWSUrl(ext.storeUrl)
+    ? `<a href="${esc(ext.storeUrl)}" target="_blank" rel="noopener noreferrer nofollow" style="font-size:11px;color:var(--accent);display:inline-block;margin-top:6px">🔗 View on Chrome Web Store</a>`
+    : '';
+
+  // Admin panel — only visible when authenticated
+  const adminPanel = isAdmin ? buildAdminPanel(ext) : '';
+
+  const el = document.getElementById('result');
+  el.innerHTML = `
+    <div class="score-hero">
+      <div class="score-ring ring-${esc(risk.color)}">
+        <span class="num">${finalScore}</span><span class="lbl">RISK SCORE</span>
+      </div>
+      <div class="score-info">
+        <h2>${esc(ext.name || ext.id)}</h2>
+        <div class="dev">${esc(ext.developer||'Unknown developer')}${ext.developerVerified?' ✓':''}</div>
+        <div class="risk-badge c-${esc(risk.color)}">${riskIcon(risk.color)} ${esc(risk.label)} Risk</div>
+        <div class="meta-row">
+          <span class="meta-item">🗂 <strong>${esc(ext.category||'Unknown')}</strong></span>
+          <span class="meta-item">👥 <strong>${ext.users!=null?esc(fmt(ext.users))+' users':'Unknown'}</strong></span>
+          <span class="meta-item">📅 Published <strong>${ext.publishedDate?esc(fmtDate(ext.publishedDate)):'Unknown'}</strong></span>
+          <span class="meta-item">🔄 Updated <strong>${ext.lastUpdated?esc(fmtDate(ext.lastUpdated)):'Unknown'}</strong></span>
+        </div>
+        ${sourceBadge}
+        ${storeLink}
+      </div>
+    </div>
+    ${trustHtml}
+    <p class="section-title">Permissions (${perm.flags.length})</p>
+    <div class="perms-card"><div class="perm-tags">${permHtml}</div></div>
+    <p class="section-title">Risk breakdown</p>
+    <div class="breakdown-grid">${bcards}</div>
+    ${adminPanel}`;
+
+  el.classList.add('visible');
+  el.dataset.extId = isValidId(ext.id) ? ext.id : '';
+}
+
+function buildAdminPanel(ext) {
+  // All values escaped before insertion
+  return `<details class="admin-card">
+    <summary>✏️ Edit this entry</summary>
+    <div class="admin-fields">
+      <div class="field-group"><label>Name</label><input type="text" id="ed-name" value="${esc(ext.name||'')}" maxlength="200" /></div>
+      <div class="field-group"><label>Developer</label><input type="text" id="ed-dev" value="${esc(ext.developer||'')}" maxlength="200" /></div>
+      <div class="field-group"><label>Developer Verified?</label>
+        <select id="ed-verified"><option value="true" ${ext.developerVerified?'selected':''}>Yes</option><option value="false" ${!ext.developerVerified?'selected':''}>No</option></select>
+      </div>
+      <div class="field-group"><label>Trust Level</label>
+        <select id="ed-trust">
+          <option value="unknown"  ${ext.trustLevel==='unknown'  ?'selected':''}>Unknown</option>
+          <option value="trusted"  ${ext.trustLevel==='trusted'  ?'selected':''}>Trusted</option>
+          <option value="caution"  ${ext.trustLevel==='caution'  ?'selected':''}>Caution</option>
+          <option value="malicious"${ext.trustLevel==='malicious'?'selected':''}>Malicious</option>
+        </select>
+      </div>
+      <div class="field-group"><label>Published (YYYY-MM-DD)</label><input type="date" id="ed-pub" value="${esc(ext.publishedDate||'')}" /></div>
+      <div class="field-group"><label>Last Updated (YYYY-MM-DD)</label><input type="date" id="ed-upd" value="${esc(ext.lastUpdated||'')}" /></div>
+      <div class="field-group"><label>User Count</label><input type="number" id="ed-users" value="${ext.users!=null?ext.users:''}" min="0" max="999999999" /></div>
+      <div class="field-group"><label>Category</label><input type="text" id="ed-cat" value="${esc(ext.category||'')}" maxlength="100" /></div>
+      <div class="field-group full"><label>Trust Reason / Notes</label><textarea id="ed-reason" maxlength="500">${esc(ext.trustReason||'')}</textarea></div>
+      <div class="field-group full"><label>Permissions (comma-separated)</label><input type="text" id="ed-perms" value="${esc((ext.permissions||[]).join(', '))}" maxlength="1000" /></div>
+    </div>
+    <div class="admin-actions">
+      <button class="btn-primary" onclick="saveEdits(${JSON.stringify(ext.id||'')})">💾 Save changes</button>
+      <button class="btn-danger"  onclick="flagEntry(${JSON.stringify(ext.id||'')})">🚩 Flag as suspicious</button>
+    </div>
+    <div id="save-status" style="font-size:12px;margin-top:8px;min-height:16px;color:var(--text2)" role="alert" aria-live="polite"></div>
+  </details>`;
+}
+
+async function saveEdits(id) {
+  if (!isValidId(id)) { console.error('Invalid ID in saveEdits'); return; }
+  const ss = document.getElementById('save-status');
+  setText(ss, 'Saving…'); ss.style.color = 'var(--text2)';
+
+  const perms = document.getElementById('ed-perms').value.split(',').map(s => s.trim()).filter(Boolean).slice(0, 50);
+  const usersVal = document.getElementById('ed-users').value;
+  const usersNum = usersVal ? Math.max(0, parseInt(usersVal, 10)) : null;
+  const trustVal = document.getElementById('ed-trust').value;
+  const VALID_TRUST = new Set(['unknown','trusted','caution','malicious']);
+  if (!VALID_TRUST.has(trustVal)) { setText(ss, '✗ Invalid trust level.'); return; }
+
+  try {
+    const { data:db, sha } = await workerReadDb();
+    db.extensions = db.extensions || {};
+    const existing = db.extensions[id] || {};
+
+    // [H4] Never spread 'existing' directly — it comes from an untrusted source
+    // (the DB could have been tampered with via C1 before that was fixed).
+    // Explicitly copy only the fields we want to preserve.
+    db.extensions[id] = {
+      id,
+      // Preserve read-only provenance fields from existing
+      storeUrl:          isCWSUrl(existing.storeUrl) ? existing.storeUrl : null,
+      fetchedAt:         typeof existing.fetchedAt === 'string' ? existing.fetchedAt.slice(0,30) : null,
+      importedAt:        typeof existing.importedAt === 'string' ? existing.importedAt.slice(0,30) : null,
+      blocklist_reason:  typeof existing.blocklist_reason === 'string' ? existing.blocklist_reason.slice(0,500) : null,
+      blocklist_source:  isSafeUrl(existing.blocklist_source) ? existing.blocklist_source : null,
+      insert_date:       typeof existing.insert_date === 'string' ? existing.insert_date.slice(0,30) : null,
+      // Editable fields — all from validated form inputs
+      name:              document.getElementById('ed-name').value.trim().slice(0, 200),
+      developer:         document.getElementById('ed-dev').value.trim().slice(0, 200),
+      developerVerified: document.getElementById('ed-verified').value === 'true',
+      trustLevel:        trustVal,
+      trustReason:       document.getElementById('ed-reason').value.trim().slice(0, 500),
+      publishedDate:     document.getElementById('ed-pub').value || null,
+      lastUpdated:       document.getElementById('ed-upd').value || null,
+      users:             isFinite(usersNum) ? usersNum : null,
+      category:          document.getElementById('ed-cat').value.trim().slice(0, 100) || null,
+      permissions:       perms,
+      source:            typeof existing.source === 'string' ? existing.source.slice(0,50) : 'manual',
+      editedAt:          new Date().toISOString()
+    };
+    await workerWriteDb(db, sha);
+    setText(ss, '✓ Saved successfully.'); ss.style.color = 'var(--green)';
+    renderDbBrowser(db);
+    setTimeout(() => renderResult(db.extensions[id], 'db'), 800);
+  } catch(e) {
+    // [M4] Don't expose raw error internals
+    const safe = e.message && e.message.length < 200 ? e.message : 'Save failed.';
+    setText(ss, '✗ ' + safe); ss.style.color = 'var(--red)';
+  }
+}
+
+async function flagEntry(id) {
+  if (!isValidId(id)) return;
+  const tsel = document.getElementById('ed-trust');
+  const rea  = document.getElementById('ed-reason');
+  if (tsel) tsel.value = 'caution';
+  if (rea)  rea.value  = (rea.value + '\n[Manually flagged as suspicious]').trim().slice(0, 500);
+  await saveEdits(id);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DB BROWSER
+// ═════════════════════════════════════════════════════════════════════════════
+async function renderDbBrowser(db) {
+  const section = document.getElementById('db-section');
+  const grid    = document.getElementById('db-grid');
+  if (!db) {
+    try { const r = await workerReadDb(); db = r.data; } catch { section.style.display='none'; return; }
+  }
+  const entries = Object.values(db.extensions || {});
+  if (!entries.length) { section.style.display='none'; return; }
+  section.style.display = 'block';
+  // Build rows safely
+  grid.innerHTML = '';
+  for (const ext of entries) {
+    const { finalScore, risk } = computeRisk(ext);
+    const row = document.createElement('div'); row.className = 'db-row';
+    row.innerHTML = `
+      <div class="db-row-left">
+        <span>${esc(ext.name||ext.id)}</span>
+        <span class="ext-id">${esc(ext.id||'')}</span>
+      </div>
+      <div class="db-row-right">
+        <span class="bc-score-pill c-${esc(risk.color)}" style="font-size:11px;padding:2px 9px;border-radius:20px;border:1px solid;">${esc(risk.label)} (${finalScore})</span>
+      </div>`;
+    // Attach event via addEventListener — no inline onclick with dynamic data
+    const btn = document.createElement('button');
+    btn.className = 'btn-sm'; btn.textContent = 'Re-check';
+    btn.addEventListener('click', () => recheckId(ext.id));
+    row.querySelector('.db-row-right').appendChild(btn);
+    grid.appendChild(row);
+  }
+}
+
+function recheckId(id) {
+  if (!isValidId(id)) return;
+  document.getElementById('ext-id-input').value = id;
+  switchTab('single', document.querySelectorAll('.tab')[0]);
+  runCheck();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ═════════════════════════════════════════════════════════════════════════════
+function fmt(n) { if(n>=1e6)return(n/1e6).toFixed(1)+'M'; if(n>=1e3)return(n/1e3).toFixed(0)+'K'; return String(n); }
+function fmtDate(d) { try{return new Date(d).toLocaleDateString('en-GB',{year:'numeric',month:'short',day:'numeric'});}catch{return d;} }
+function riskIcon(c) { return {green:'🛡️',teal:'🛡️',amber:'⚠️',coral:'🔶',red:'🚫'}[c]||'❓'; }
+function setStatus(msg) { setText(document.getElementById('status-text'), msg); document.getElementById('status-bar').classList.add('visible'); }
+function hideStatus()   { document.getElementById('status-bar').classList.remove('visible'); }
+function showStatus(msg){ setStatus(msg); }
+function setBulkStatus(msg) { setText(document.getElementById('bulk-status-text'), msg); }
+function showError(msg) {
+  const el = document.getElementById('result');
+  el.innerHTML = `<div class="error-card">⚠️ ${esc(msg)}</div>`;
+  el.classList.add('visible');
+}
+
+// ── Event listeners (not inline onclick for security) ──────────────────────
+document.getElementById('ext-id-input').addEventListener('keydown', e => { if (e.key==='Enter') runCheck(); });
+document.getElementById('admin-pass').addEventListener('keydown', e => { if (e.key==='Enter') verifyAdmin(); });
+document.getElementById('admin-modal').addEventListener('click', e => { if (e.target===document.getElementById('admin-modal')) closeAdminLogin(); });
+
+// Drag-and-drop for bulk upload
+['drag-over','dragleave','drop'].forEach(ev => {
+  document.getElementById('bulk-drop-zone').addEventListener(ev === 'drag-over' ? 'dragover' : ev, e => {
+    e.preventDefault();
+    if (ev==='drag-over') document.getElementById('bulk-drop-zone').classList.add('drag-over');
+    if (ev==='dragleave') document.getElementById('bulk-drop-zone').classList.remove('drag-over');
+    if (ev==='drop') { document.getElementById('bulk-drop-zone').classList.remove('drag-over'); handleBulkFile(e.dataTransfer?.files?.[0]); }
+  });
+});
+document.getElementById('bl-drop-zone').addEventListener('dragover', e => { e.preventDefault(); document.getElementById('bl-drop-zone').classList.add('drag-over'); });
+document.getElementById('bl-drop-zone').addEventListener('dragleave', () => document.getElementById('bl-drop-zone').classList.remove('drag-over'));
+document.getElementById('bl-drop-zone').addEventListener('drop', e => { e.preventDefault(); document.getElementById('bl-drop-zone').classList.remove('drag-over'); handleBlocklistFile(e.dataTransfer?.files?.[0]); });
+
+// Init
+renderDbBrowser();
+</script>
+</body>
+</html>
