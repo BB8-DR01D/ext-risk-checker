@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src YOUR_WORKER_URL; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'self';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src frosty-band-6bc9.k9dg84khjg.workers.dev; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'self';" />
   <title>Chrome Extension Risk Checker</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -282,7 +282,7 @@ const WORKER_URL = 'https://frosty-band-6bc9.k9dg84khjg.workers.dev';
 // (20+ chars). Short/dictionary passwords are offline-crackable from this hash.
 // Generate hash: crypto.subtle.digest('SHA-256',new TextEncoder().encode('passphrase'))
 //   .then(b=>console.log([...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')))
-const ADMIN_HASH = 'REPLACE_WITH_SHA256_HASH_OF_YOUR_PASSPHRASE';
+const ADMIN_HASH = '009a1beb0606e11405852eec49a118688867c3bd05858b7a9e5d61afef7dc05d';
 
 // [C1] Write secret — must match WRITE_SECRET in your Cloudflare Worker secrets.
 // Generate: open browser console, run: crypto.getRandomValues(new Uint8Array(32))
