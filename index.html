@@ -276,7 +276,7 @@
 // ═════════════════════════════════════════════════════════════════════════════
 // CONFIGURATION — replace ALL placeholders before publishing
 // ═════════════════════════════════════════════════════════════════════════════
-const WORKER_URL = 'https://YOUR_WORKER_NAME.YOUR_CF_SUBDOMAIN.workers.dev';
+const WORKER_URL = 'https://frosty-band-6bc9.k9dg84khjg.workers.dev';
 
 // [H2] Admin hash: SHA-256 of your passphrase. Use a LONG random passphrase
 // (20+ chars). Short/dictionary passwords are offline-crackable from this hash.
@@ -289,7 +289,7 @@ const ADMIN_HASH = 'REPLACE_WITH_SHA256_HASH_OF_YOUR_PASSPHRASE';
 //   then encode as hex. Or use: openssl rand -hex 32 in a terminal.
 // This is visible in page source — that is acceptable because it only allows
 // writes IF the Worker also has the matching secret. Rotate it if compromised.
-const WRITE_SECRET = 'REPLACE_WITH_YOUR_WRITE_SECRET';
+const WRITE_SECRET = 'Rd1620c6da358a5c37d6ade765bb5509d64bf5837436d9f2181c3c476d6ac83dcd7fb76d28d718bb1';
 
 // [L2] Admin session timeout in milliseconds (default 30 minutes)
 const ADMIN_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
