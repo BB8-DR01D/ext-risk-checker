@@ -3,9 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- [H1] CSP: no unsafe-inline. All JS is inline but a nonce would require server-side rendering;
-       for a static GitHub Pages app the strongest practical CSP is below.
-       connect-src locked to your Worker URL only — change before deploying. -->
+
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src YOUR_WORKER_URL; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'self';" />
   <title>Chrome Extension Risk Checker</title>
   <style>
